@@ -8,7 +8,7 @@ angular.module('flocs', [
     'flocs.home',
     'flocs.practice',
     'flocs.taskPreview',
-    'flocs.login'
+    'flocs.user'
 ])
 
 // routes configuration
