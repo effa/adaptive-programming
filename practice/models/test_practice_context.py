@@ -9,7 +9,7 @@ from practice.models import StudentsSkillModel
 from common.flow_factors import FlowFactors
 from decimal import Decimal
 from datetime import datetime
-from .practice_context import generate_practice_context, PracticeContext
+from .practice_context import PracticeContext
 
 
 class PracticeContextTest(TestCase):
@@ -39,6 +39,22 @@ class PracticeContextTest(TestCase):
         self.assertEquals(4, context.get('iq', student=11))
         self.assertEquals(6, context.get('iq', task=12))
         self.assertEquals(8, context.get('iq', student=10, task=12))
+
+    def test_update(self):
+        context = PracticeContext([
+                ('iq', None, None, 5),
+                ('iq', 11, None, 4),
+                ('iq', None, 12, 6),
+                ('iq', 10, 12, 8)
+        ])
+        context.update('iq', update=lambda x: 10)
+        context.update('iq', student=11, update=lambda x: x + 1)
+        context.update('iq', task=12, update=lambda x: x * 2)
+        context.update('iq', student=10, task=12, update=lambda x: x - 0.5)
+        self.assertEquals(10, context.get('iq'))
+        self.assertEquals(5, context.get('iq', student=11))
+        self.assertEquals(12, context.get('iq', task=12))
+        self.assertAlmostEquals(7.5, context.get('iq', student=10, task=12))
 
     def test_get_skill_dict(self):
         context = PracticeContext([
@@ -78,38 +94,6 @@ class PracticeContextTest(TestCase):
         self.assertAlmostEquals(0, task_difficulty[FlowFactors.TOKENS])
         self.assertAlmostEquals(0, task_difficulty[FlowFactors.PITS])
 
-    def test_generate_practice_context(self):
-        task = TaskModel.objects.create()
-        difficulty = TasksDifficultyModel.objects.create(
-                task=task,
-                programming=Decimal('-0.58'),
-                conditions=False,
-                loops=True,
-                logic_expr=False,
-                colors=False,
-                tokens=False,
-                pits=False,
-        )
-        student = User.objects.create()
-        students_skills = StudentsSkillModel.objects.create(
-                student=student,
-                programming=Decimal('0.14'),
-                conditions=0,
-                loops=0.5,
-                logic_expr=-0.5,
-                colors=0,
-                tokens=0,
-                pits=0,
-        )
-        time = datetime(2015, 1, 2, 3, 4, 5)
-        context = generate_practice_context(student, time=time)
-        #print(context._parameters)
-        self.assertAlmostEquals(-0.58,
-            context.get(FlowFactors.TASK_BIAS, task=task.id))
-        self.assertAlmostEquals(0.5,
-            context.get(FlowFactors.LOOPS, student=student.id))
-        self.assertEquals(time, context.get_time())
-
     def test_get_all_task_ids(self):
         context = PracticeContext([
                 ('i', 10,   None, 1),
@@ -119,3 +103,55 @@ class PracticeContextTest(TestCase):
         context.set('q', task=12, value=1)
         context.set('q', student=10, task=13, value=1)
         self.assertEquals({12, 13}, set(context.get_all_task_ids()))
+
+    def test_save_task(self):
+        task = TaskModel.objects.create()
+        TasksDifficultyModel.objects.create(
+                task=task,
+                programming=Decimal('-0.58'),
+                conditions=False,
+                loops=True,
+                logic_expr=False,
+                colors=False,
+                tokens=False,
+                pits=False,
+        )
+        context = PracticeContext([
+            (FlowFactors.TASK_BIAS, None, task.id, 1.1),
+            ('solution-count', None, task.id, 5),
+        ])
+        context.save()
+        new_difficulty = TasksDifficultyModel.objects.get(task_id=task.id)
+        self.assertAlmostEquals(1.1, float(new_difficulty.programming))
+        self.assertEquals(5, new_difficulty.solution_count)
+
+    def test_save_student(self):
+        student = User.objects.create()
+        StudentsSkillModel.objects.create(
+                student=student,
+                programming=Decimal('0.14'),
+                conditions=0,
+                loops=0.5,
+                logic_expr=-0.5,
+                colors=0,
+                tokens=0,
+                pits=0,
+        )
+        context = PracticeContext([
+            (FlowFactors.CONDITIONS, student.id, None, 1.1),
+            (FlowFactors.LOOPS,      student.id, None, 1.2),
+            (FlowFactors.LOGIC_EXPR, student.id, None, 1.3),
+            (FlowFactors.COLORS,     student.id, None, 1.4),
+            (FlowFactors.TOKENS,     student.id, None, 1.5),
+        ])
+        context.set(FlowFactors.STUDENT_BIAS, student=student.id, value=-0.1)
+        context.set(FlowFactors.PITS, student=student.id, value=-0.5)
+        context.save()
+        skill = StudentsSkillModel.objects.get(student_id=student.id)
+        self.assertAlmostEquals(-0.1, float(skill.programming))
+        self.assertAlmostEquals(1.1, float(skill.conditions))
+        self.assertAlmostEquals(1.2, float(skill.loops))
+        self.assertAlmostEquals(1.3, float(skill.logic_expr))
+        self.assertAlmostEquals(1.4, float(skill.colors))
+        self.assertAlmostEquals(1.5, float(skill.tokens))
+        self.assertAlmostEquals(-0.5, float(skill.pits))
